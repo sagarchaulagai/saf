@@ -150,21 +150,70 @@ class Saf {
       const kSourceUriString = "sourceUriString";
       const kCacheDirectoryName = "cacheDirectoryName";
 
-      var sourceUriString = makeUriString(path: filePath as String);
+      // For single cache, we need to create a document URI that can be used with the tree structure
+      // The filePath from getFilesPathFor is a full path, but we need to create a document URI
+      // that represents the file within the tree structure
+
+      String relativePath = filePath!;
+      if (directory != null) {
+        // The directory might be just the folder name (e.g., "Audiobooks")
+        // but the filePath is the full path (e.g., "/storage/emulated/0/Audiobooks/file.mp3")
+        // We need to find the directory in the filePath and extract the relative path
+        String fullDirectoryPath = "/storage/emulated/0/$directory";
+        if (filePath.startsWith(fullDirectoryPath)) {
+          relativePath = filePath.substring(fullDirectoryPath.length);
+          if (relativePath.startsWith('/')) {
+            relativePath = relativePath.substring(1);
+          }
+        } else {
+          // Fallback: just use the filename
+          relativePath = filePath.split('/').last;
+        }
+      }
+
+      // Create a document URI that represents the file within the tree structure
+      // We need to build the full path relative to the tree root
+      String fullRelativePath =
+          directory != null ? "$directory/$relativePath" : relativePath;
+      var sourceUriString =
+          makeUriString(path: fullRelativePath, isTreeUri: false);
       var cacheDirectoryName = makeDirectoryPathToName(_directory);
       if (directory != null) {
         cacheDirectoryName = makeDirectoryPathToName(directory);
       }
 
+      print("DEBUG: singleCache - filePath: $filePath");
+      print("DEBUG: singleCache - directory: $directory");
+      print("DEBUG: singleCache - relativePath: $relativePath");
+      print("DEBUG: singleCache - fullRelativePath: $fullRelativePath");
+      print("DEBUG: singleCache - sourceUriString: $sourceUriString");
+      print("DEBUG: singleCache - cacheDirectoryName: $cacheDirectoryName");
+      print("DEBUG: singleCache - About to call Android method...");
+      print(
+          "DEBUG: singleCache - Method name: $kSingleCacheToExternalFilesDirectory");
+      print("DEBUG: singleCache - Channel: kDocumentFileChannel");
+
       final args = <String, dynamic>{
         kSourceUriString: sourceUriString,
         kCacheDirectoryName: cacheDirectoryName,
       };
-      final path = await kDocumentFileChannel.invokeMethod<String?>(
-          kSingleCacheToExternalFilesDirectory, args);
+
+      print("DEBUG: singleCache - Calling invokeMethod...");
+      final path = await kDocumentFileChannel
+          .invokeMethod<String?>(kSingleCacheToExternalFilesDirectory, args)
+          .timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          print("DEBUG: singleCache - TIMEOUT after 30 seconds");
+          return null;
+        },
+      );
+
+      print("DEBUG: singleCache - result: $path");
       if (path == null) return null;
       return path;
     } catch (e) {
+      print("DEBUG: singleCache - error: $e");
       return null;
     }
   }

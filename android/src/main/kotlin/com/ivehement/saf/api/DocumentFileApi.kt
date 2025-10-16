@@ -60,8 +60,13 @@ internal class DocumentFileApi(private val plugin: SafPlugin) :
         }
       }
       SINGLE_CACHE_TO_EXTERNAL_FILES_DIRECTORY -> {
+        Log.d("SAF_DEBUG", "SINGLE_CACHE_TO_EXTERNAL_FILES_DIRECTORY method called")
         if (Build.VERSION.SDK_INT >= API_21) {
-          singleCacheToExternalFilesDir(call, result, util!!)
+          Log.d("SAF_DEBUG", "Starting singleCacheToExternalFilesDir thread")
+          Thread(singleCacheToExternalFilesDir(call, result, util!!)).start()
+        } else {
+          Log.d("SAF_DEBUG", "API level too low: ${Build.VERSION.SDK_INT}")
+          result.success(null)
         }
       }
       CLEAR_CACHED_FILES -> {
@@ -541,15 +546,31 @@ internal class DocumentFileApi(private val plugin: SafPlugin) :
       try {
         val sourceUriString = call.argument<String>("sourceUriString")
         val cacheDirectoryName = call.argument<String>("cacheDirectoryName")
+        
+        Log.d("SINGLE_CACHE_DEBUG", "Starting singleCacheToExternalFilesDir")
+        Log.d("SINGLE_CACHE_DEBUG", "sourceUriString: $sourceUriString")
+        Log.d("SINGLE_CACHE_DEBUG", "cacheDirectoryName: $cacheDirectoryName")
   
         var cachedFilePath: String? = null
         val sourceUri: Uri = Uri.parse(sourceUriString)
-        val copiedPath: String? = util.syncCopyFileToExternalStorage(sourceUri, cacheDirectoryName!!, nameFromFileUri(sourceUri).toString())
-        if(copiedPath != null) cachedFilePath = copiedPath.toString()
+        Log.d("SINGLE_CACHE_DEBUG", "Parsed sourceUri: $sourceUri")
+        
+        val fileName = nameFromFileUri(sourceUri)
+        Log.d("SINGLE_CACHE_DEBUG", "Extracted fileName: $fileName")
+        
+        if (fileName != null) {
+          val copiedPath: String? = util.syncCopyFileToExternalStorage(sourceUri, cacheDirectoryName!!, fileName)
+          Log.d("SINGLE_CACHE_DEBUG", "syncCopyFileToExternalStorage result: $copiedPath")
+          if(copiedPath != null) cachedFilePath = copiedPath.toString()
+        } else {
+          Log.e("SINGLE_CACHE_DEBUG", "fileName is null - nameFromFileUri failed")
+        }
   
+        Log.d("SINGLE_CACHE_DEBUG", "Final result: $cachedFilePath")
         result.success(cachedFilePath)
       } catch (e: Exception) {
         Log.e("SINGLE_CACHING_EXCEPTION", e.message!!)
+        Log.e("SINGLE_CACHING_EXCEPTION", "Stack trace: ${e.stackTraceToString()}")
         result.success(null)
       }
     }

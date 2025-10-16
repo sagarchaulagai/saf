@@ -34,6 +34,8 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
   String? _selectedFolderPath;
   bool _isLoading = false;
   String? _errorMessage;
+  Map<String, bool> _cachingFiles = {}; // Track which files are being cached
+  Map<String, String?> _cachedFilePaths = {}; // Store cached file paths
 
   @override
   void initState() {
@@ -70,7 +72,9 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
           });
 
           // Get all files recursively from the selected directory
-          print("DEBUG: Calling Saf.getFilesPathFor with directory: $selectedDirectory");
+          print(
+            "DEBUG: Calling Saf.getFilesPathFor with directory: $selectedDirectory",
+          );
           List<String>? filePaths = await Saf.getFilesPathFor(
             selectedDirectory,
             fileType: "any", // Get all file types
@@ -118,7 +122,111 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
       _filePaths.clear();
       _selectedFolderPath = null;
       _errorMessage = null;
+      _cachingFiles.clear();
+      _cachedFilePaths.clear();
     });
+  }
+
+  Future<void> _cacheFile(String filePath) async {
+    if (_selectedFolderPath == null) return;
+
+    setState(() {
+      _cachingFiles[filePath] = true;
+    });
+
+    try {
+      Saf saf = Saf(_selectedFolderPath!);
+      String? cachedPath = await saf.singleCache(
+        filePath: filePath,
+        directory: _selectedFolderPath,
+      );
+
+      setState(() {
+        _cachingFiles[filePath] = false;
+        _cachedFilePaths[filePath] = cachedPath;
+      });
+
+      if (cachedPath != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'File cached successfully: ${filePath.split('/').last}',
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to cache file: ${filePath.split('/').last}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _cachingFiles[filePath] = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error caching file: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _cacheAllFiles() async {
+    if (_selectedFolderPath == null || _filePaths.isEmpty) return;
+
+    int successCount = 0;
+    int failCount = 0;
+
+    for (String filePath in _filePaths) {
+      if (_cachedFilePaths[filePath] != null)
+        continue; // Skip already cached files
+
+      setState(() {
+        _cachingFiles[filePath] = true;
+      });
+
+      try {
+        Saf saf = Saf(_selectedFolderPath!);
+        String? cachedPath = await saf.singleCache(
+          filePath: filePath,
+          directory: _selectedFolderPath,
+        );
+
+        setState(() {
+          _cachingFiles[filePath] = false;
+          _cachedFilePaths[filePath] = cachedPath;
+        });
+
+        if (cachedPath != null) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (e) {
+        setState(() {
+          _cachingFiles[filePath] = false;
+        });
+        failCount++;
+      }
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Cache completed: $successCount successful, $failCount failed',
+        ),
+        backgroundColor: failCount > 0 ? Colors.orange : Colors.green,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   Widget _buildFileItem(String filePath) {
@@ -168,6 +276,9 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
         iconColor = Colors.grey;
     }
 
+    bool isCaching = _cachingFiles[filePath] ?? false;
+    bool isCached = _cachedFilePaths[filePath] != null;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       elevation: 2,
@@ -177,12 +288,48 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
           fileName,
           style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
         ),
-        subtitle: Text(
-          filePath,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              filePath,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (isCached) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.check_circle, size: 16, color: Colors.green),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Cached',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.green,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
+        trailing: isCaching
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : IconButton(
+                icon: Icon(
+                  isCached ? Icons.check_circle : Icons.download,
+                  color: isCached ? Colors.green : Colors.deepPurple,
+                ),
+                onPressed: isCached ? null : () => _cacheFile(filePath),
+                tooltip: isCached ? 'File is cached' : 'Cache file',
+              ),
         dense: true,
       ),
     );
@@ -227,6 +374,17 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
                       color: Colors.green,
                     ),
                   ),
+                  if (_cachedFilePaths.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_cachedFilePaths.length} cached',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: Colors.blue,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ] else ...[
                   const Text(
                     'No folder selected',
@@ -234,35 +392,53 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
                   ),
                 ],
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _selectFolderAndGetFiles,
-                      icon: _isLoading
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.folder_open),
-                      label: Text(_isLoading ? 'Loading...' : 'Choose Folder'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    if (_selectedFolderPath != null)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
                       ElevatedButton.icon(
-                        onPressed: _clearPermissions,
-                        icon: const Icon(Icons.clear),
-                        label: const Text('Clear'),
+                        onPressed: _isLoading ? null : _selectFolderAndGetFiles,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.folder_open),
+                        label: Text(
+                          _isLoading ? 'Loading...' : 'Choose Folder',
+                        ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
+                          backgroundColor: Colors.deepPurple,
                           foregroundColor: Colors.white,
                         ),
                       ),
-                  ],
+                      const SizedBox(width: 12),
+                      if (_selectedFolderPath != null) ...[
+                        ElevatedButton.icon(
+                          onPressed: _cacheAllFiles,
+                          icon: const Icon(Icons.download),
+                          label: const Text('Cache All'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          onPressed: _clearPermissions,
+                          icon: const Icon(Icons.clear),
+                          label: const Text('Clear'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ],
             ),
