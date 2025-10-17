@@ -75,8 +75,13 @@ internal class DocumentFileApi(private val plugin: SafPlugin) :
         }
       }
       SYNC_WITH_EXTERNAL_FILES_DIRECTORY -> {
+        Log.d("SAF_DEBUG", "SYNC_WITH_EXTERNAL_FILES_DIRECTORY method called")
         if (Build.VERSION.SDK_INT >= API_21) {
+          Log.d("SAF_DEBUG", "Starting syncWithExternalFilesDirectory thread")
           Thread(syncWithExternalFilesDirectory(call, result, plugin.context, util!!)).start()
+        } else {
+          Log.d("SAF_DEBUG", "API level too low: ${Build.VERSION.SDK_INT}")
+          result.success(false)
         }
       }
       DYNAMIC_SYNC_WITH_EXTERNAL_FILES_DIRECTORY -> {
@@ -579,8 +584,12 @@ internal class DocumentFileApi(private val plugin: SafPlugin) :
   internal class syncWithExternalFilesDirectory(private val call: MethodCall, private val result: MethodChannel.Result, private val context: Context, private val util: SafUtil): Runnable {
     override fun run() {
       try {
+        Log.d("SYNC_DEBUG", "Starting syncWithExternalFilesDirectory")
         val sourceTreeUriString = call.argument<String>("sourceTreeUriString")
         val cacheDirectoryName = call.argument<String>("cacheDirectoryName")
+        
+        Log.d("SYNC_DEBUG", "sourceTreeUriString: $sourceTreeUriString")
+        Log.d("SYNC_DEBUG", "cacheDirectoryName: $cacheDirectoryName")
         
         val sourceTreeUri: Uri = Uri.parse(sourceTreeUriString)
         val sourceFileUris = mutableListOf<Uri>()
@@ -691,12 +700,15 @@ internal class DocumentFileApi(private val plugin: SafPlugin) :
           }
         }
   
+        Log.d("SYNC_DEBUG", "Processing ${sourceFileUris.size} files")
         for (uri in sourceFileUris) {
           util.syncCopyFileToExternalStorage(uri, cacheDirectoryName!!, nameFromFileUri(uri).toString())
         }
+        Log.d("SYNC_DEBUG", "Sync completed successfully")
         result.success(true)
       } catch (e: Exception) {
         Log.e("SYNCING_EXCEPTION", e.message!!)
+        Log.e("SYNCING_EXCEPTION", "Stack trace: ${e.stackTraceToString()}")
         result.success(null)
       }
     }

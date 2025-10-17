@@ -249,15 +249,32 @@ class Saf {
 
       var cacheDirectoryName = makeDirectoryPathToName(_directory);
 
+      print("DEBUG: sync - _directory: $_directory");
+      print("DEBUG: sync - _uriString: $_uriString");
+      print("DEBUG: sync - cacheDirectoryName: $cacheDirectoryName");
+      print("DEBUG: sync - About to call Android method...");
+
       final args = <String, dynamic>{
         kSourceTreeUriString: _uriString,
         kCacheDirectoryName: cacheDirectoryName,
       };
-      final isSync = await kDocumentFileChannel.invokeMethod<bool?>(
-          kSyncWithExternalFilesDirectory, args);
+
+      print("DEBUG: sync - Calling invokeMethod...");
+      final isSync = await kDocumentFileChannel
+          .invokeMethod<bool?>(kSyncWithExternalFilesDirectory, args)
+          .timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          print("DEBUG: sync - TIMEOUT after 30 seconds");
+          return null;
+        },
+      );
+
+      print("DEBUG: sync - result: $isSync");
       if (isSync == null) return null;
       return isSync;
     } catch (e) {
+      print("DEBUG: sync - error: $e");
       return null;
     }
   }

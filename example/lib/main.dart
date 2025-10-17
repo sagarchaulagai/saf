@@ -33,6 +33,7 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
   List<String> _filePaths = [];
   String? _selectedFolderPath;
   bool _isLoading = false;
+  bool _isSyncing = false;
   String? _errorMessage;
   Map<String, bool> _cachingFiles = {}; // Track which files are being cached
   Map<String, String?> _cachedFilePaths = {}; // Store cached file paths
@@ -122,6 +123,8 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
       _filePaths.clear();
       _selectedFolderPath = null;
       _errorMessage = null;
+      _isLoading = false;
+      _isSyncing = false;
       _cachingFiles.clear();
       _cachedFilePaths.clear();
     });
@@ -227,6 +230,84 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  Future<void> _syncFiles() async {
+    if (_selectedFolderPath == null) return;
+
+    setState(() {
+      _isSyncing = true;
+    });
+
+    try {
+      Saf saf = Saf(_selectedFolderPath!);
+      print("DEBUG: Starting sync operation...");
+
+      bool? syncResult = await saf.sync();
+
+      setState(() {
+        _isSyncing = false;
+      });
+
+      if (syncResult == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sync completed successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // Refresh the cached files status
+        await _refreshCachedFilesStatus();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sync failed'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isSyncing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error during sync: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _refreshCachedFilesStatus() async {
+    if (_selectedFolderPath == null) return;
+
+    try {
+      Saf saf = Saf(_selectedFolderPath!);
+      List<String>? cachedFiles = await saf.getCachedFilesPath();
+
+      if (cachedFiles != null) {
+        setState(() {
+          _cachedFilePaths.clear();
+          for (String cachedPath in cachedFiles) {
+            // Find the corresponding original file path
+            for (String originalPath in _filePaths) {
+              String fileName = originalPath.split('/').last;
+              if (cachedPath.contains(fileName)) {
+                _cachedFilePaths[originalPath] = cachedPath;
+                break;
+              }
+            }
+          }
+        });
+      }
+    } catch (e) {
+      print("DEBUG: Error refreshing cached files status: $e");
+    }
   }
 
   Widget _buildFileItem(String filePath) {
@@ -423,6 +504,24 @@ class _FileExplorerPageState extends State<FileExplorerPage> {
                           label: const Text('Cache All'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          onPressed: _isSyncing ? null : _syncFiles,
+                          icon: _isSyncing
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.sync),
+                          label: Text(_isSyncing ? 'Syncing...' : 'Sync'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
                           ),
                         ),
